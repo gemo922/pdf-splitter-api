@@ -6,24 +6,44 @@ Stack : FastAPI + pypdf
 from __future__ import annotations
 
 import io
+import os
+import secrets
 import zipfile
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Security
 from fastapi.responses import Response
+from fastapi.security import APIKeyHeader
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+
+API_KEYS: set[str] = set()
+_raw = os.environ.get("API_KEYS", "")
+if _raw:
+    API_KEYS = {k.strip() for k in _raw.split(",") if k.strip()}
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str | None = Security(api_key_header)):
+    """Vérifie la clé API si des clés sont configurées. Pas de clés = accès libre."""
+    if not API_KEYS:
+        return
+    if not api_key or not any(secrets.compare_digest(api_key, k) for k in API_KEYS):
+        raise HTTPException(status_code=401, detail="Clé API invalide ou manquante.")
+
 
 app = FastAPI(
     title="PDF Splitter API",
     version="1.0.0",
     description=(
         "Service de découpe, extraction, fusion et transformation de fichiers PDF. "
-        "Endpoints : info, extract, every, ranges, size, merge, rotate, delete, reorder."
+        "Authentification par header X-API-Key (si API_KEYS est configuré)."
     ),
+    dependencies=[Depends(verify_api_key)],
 )
 
 
